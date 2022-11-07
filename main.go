@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/jpillora/upnpctl/upnp" //vendored
+	"upnpctl/upnp" //vendored
 )
 
 var VERSION string = "0.0.0" //set via ldflags
@@ -71,6 +71,7 @@ type command string
 var list = command("list")
 var add = command("add")
 var rem = command("rem")
+var intranet *string
 
 func main() {
 	v := flag.Bool("v", false, "")
@@ -110,6 +111,7 @@ func main() {
 	f := flag.NewFlagSet(string(cmd), flag.ExitOnError)
 	id := f.String("id", "", "")
 	tf := f.String("type", "tcp", "")
+	intranet = f.String("ip", "", "")
 	timeoutf := f.Duration("timeout", 0, "")
 	desc := f.String("desc", "upnpctl v"+VERSION, "")
 	//parse and transform args
@@ -212,7 +214,7 @@ func display(msg string) {
 
 func discover() clients {
 	cs := make(clients, 0)
-	igds := upnp.Discover()
+	igds := upnp.Discover(intranet)
 	for _, igd := range igds {
 		host := igd.URL().Host
 		ip, _, _ := net.SplitHostPort(host)

@@ -103,18 +103,18 @@ type upnpRoot struct {
 
 // Discover discovers UPnP InternetGatewayDevices.
 // The order in which the devices appear in the result list is not deterministic.
-func Discover() []IGD {
+func Discover(intranet *string) []IGD {
 	var result []IGD
 	l.Println("Starting UPnP discovery...")
 
 	timeout := 3
 
 	// Search for InternetGatewayDevice:2 devices
-	result = append(result, discover("urn:schemas-upnp-org:device:InternetGatewayDevice:2", timeout, result)...)
+	result = append(result, discover("urn:schemas-upnp-org:device:InternetGatewayDevice:2", timeout, result, intranet)...)
 
 	// Search for InternetGatewayDevice:1 devices
 	// InternetGatewayDevice:2 devices that correctly respond to the IGD:1 request as well will not be re-added to the result list
-	result = append(result, discover("urn:schemas-upnp-org:device:InternetGatewayDevice:1", timeout, result)...)
+	result = append(result, discover("urn:schemas-upnp-org:device:InternetGatewayDevice:1", timeout, result, intranet)...)
 
 	if len(result) > 0 && Debug {
 		l.Println("UPnP discovery result:")
@@ -139,7 +139,7 @@ func Discover() []IGD {
 
 // Search for UPnP InternetGatewayDevices for <timeout> seconds, ignoring responses from any devices listed in knownDevices.
 // The order in which the devices appear in the result list is not deterministic
-func discover(deviceType string, timeout int, knownDevices []IGD) []IGD {
+func discover(deviceType string, timeout int, knownDevices []IGD, intranet *string) []IGD {
 	ssdp := &net.UDPAddr{IP: []byte{239, 255, 255, 250}, Port: 1900}
 
 	tpl := `M-SEARCH * HTTP/1.1
@@ -202,7 +202,7 @@ Mx: %d
 		} else {
 			// Process results in a separate go routine so we can immediately return to listening for more responses
 			resultWaitGroup.Add(1)
-			go handleSearchResponse(deviceType, knownDevices, resp, n, resultChannel, &resultWaitGroup)
+			go handleSearchResponse(deviceType, knownDevices, resp, n, resultChannel, &resultWaitGroup, intranet)
 		}
 	}
 
@@ -233,7 +233,7 @@ Mx: %d
 	return results
 }
 
-func handleSearchResponse(deviceType string, knownDevices []IGD, resp []byte, length int, resultChannel chan<- IGD, resultWaitGroup *sync.WaitGroup) {
+func handleSearchResponse(deviceType string, knownDevices []IGD, resp []byte, length int, resultChannel chan<- IGD, resultWaitGroup *sync.WaitGroup, intranet *string) {
 	defer resultWaitGroup.Done() // Signal when we've finished processing
 
 	if Debug {
@@ -317,7 +317,7 @@ func handleSearchResponse(deviceType string, knownDevices []IGD, resp []byte, le
 	// We do this in a fairly roundabout way by connecting to the IGD and
 	// checking the address of the local end of the socket. I'm open to
 	// suggestions on a better way to do this...
-	localIPAddress, err := localIP(deviceDescriptionURL)
+	localIPAddress, err := localIP(deviceDescriptionURL, intranet)
 	if err != nil {
 		l.Println(err)
 		return
@@ -338,19 +338,21 @@ func handleSearchResponse(deviceType string, knownDevices []IGD, resp []byte, le
 	}
 }
 
-func localIP(url *url.URL) (string, error) {
-	conn, err := net.Dial("tcp", url.Host)
-	if err != nil {
-		return "", err
-	}
-	defer conn.Close()
+func localIP(url *url.URL, intranet *string) (string, error) {
+	if *intranet == "" {
+		conn, err := net.Dial("tcp", url.Host)
+		if err != nil {
+			return "", err
+		}
+		defer conn.Close()
 
-	localIPAddress, _, err := net.SplitHostPort(conn.LocalAddr().String())
-	if err != nil {
-		return "", err
+		localIPAddress, _, err := net.SplitHostPort(conn.LocalAddr().String())
+		if err != nil {
+			return "", err
+		}
+		return localIPAddress, nil
 	}
-
-	return localIPAddress, nil
+	return *intranet, nil
 }
 
 func getChildDevices(d upnpDevice, deviceType string) []upnpDevice {
